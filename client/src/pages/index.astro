@@ -1,0 +1,11 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Languages from '../components/Languages.svelte';
+import UserInfo from "../components/auth/UserInfo.svelte";
+---
+
+<Layout>
+	<h1>Available languages</h1>
+	<Languages client:load/>
+	<UserInfo client:visible/>
+</Layout>

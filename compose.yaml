@@ -1,0 +1,107 @@
+services:
+
+  server:
+    build: server
+    restart: unless-stopped
+    volumes:
+      - ./server:/app
+    env_file:
+      - project.env
+    depends_on:
+      - database
+      - redis
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.server-router.entrypoints=web"
+      - "traefik.http.routers.server-router.rule=PathPrefix(`/api`)"
+      - "traefik.http.services.server-service.loadbalancer.server.port=8000"  
+
+  client:
+    build: client
+    restart: unless-stopped
+    volumes:
+      - ./client:/app
+    depends_on:
+      - server    
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.client-router.entrypoints=web"
+      - "traefik.http.routers.client-router.rule=PathPrefix(`/`)"
+      - "traefik.http.services.client-service.loadbalancer.server.port=4321"  
+
+  grader:
+    build: grader
+    restart: unless-stopped
+    volumes:
+     - ./grader:/app
+    env_file:
+     - project.env
+    depends_on:
+    - server
+    - database  
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grader-api.rule=PathPrefix(`/grader-api`)"
+      - "traefik.http.routers.grader-api.middlewares=grader-api-replacepath"
+      - "traefik.http.middlewares.grader-api-replacepath.replacePathRegex.regex=^/grader-api(.*)"
+      - "traefik.http.middlewares.grader-api-replacepath.replacePathRegex.replacement=/api$1"
+      - "traefik.http.services.grader-api.loadbalancer.server.port=8000"     
+
+  database:
+    container_name: database2
+    image: postgres:17.0
+    restart: unless-stopped
+    env_file:
+      - project.env
+    volumes:
+      - ./postgres-data:/var/lib/postgresql/data 
+    command: >
+      postgres
+      -c shared_preload_libraries=auto_explain,pg_stat_statements 
+      -c auto_explain.log_min_duration=10
+
+  database-migrations:
+    image: flyway/flyway:10
+    env_file:
+     - project.env
+    depends_on:
+     - database
+    volumes:
+     - ./database-migrations:/flyway/sql
+    command: -connectRetries=60 -baselineOnMigrate=true migrate    
+    
+  redis:
+    image: redis:7.4.2
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf    
+  
+  traefik:
+    image: traefik:v3.3
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--entrypoints.web.address=:8000"
+    ports:
+      - "8080:8080"
+      - "8000:8000"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+  lgtm:
+    image: grafana/otel-lgtm:0.8.6
+    ports:
+      - "3000:3000"
+      - "4318:4318"    
+    volumes:
+      - ./lgtm-data:/data   
+
+  inference-api:
+    build: inference-api
+    restart: unless-stopped
+    volumes:
+      - ./inference-api:/app
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.inference-api-router.entrypoints=web"
+      - "traefik.http.routers.inference-api-router.rule=PathPrefix(`/inference-api`)"
+      - "traefik.http.services.inference-api-service.loadbalancer.server.port=8000"
